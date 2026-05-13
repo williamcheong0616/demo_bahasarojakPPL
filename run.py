@@ -173,13 +173,20 @@ def main():
     if args.reload:
         cmd.append("--reload")
 
-    # Open browser after a short delay (server needs time to bind the port)
-    if not args.no_browser:
+    # Open browser — skip on headless Linux servers (no display = no GUI browser)
+    has_display = (
+        platform.system() != "Linux"
+        or bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    )
+    if not args.no_browser and has_display:
         import threading
         def _open_browser():
             time.sleep(3)
             webbrowser.open(url)
         threading.Thread(target=_open_browser, daemon=True).start()
+    elif not has_display:
+        _print(f"Headless server detected — open {url} in your local browser", "run")
+        _print("Tip: SSH tunnel with:  ssh -L {port}:localhost:{port} <user>@<server>".format(port=args.port), "run")
 
     try:
         subprocess.run(cmd, env=env)
