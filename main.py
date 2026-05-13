@@ -215,8 +215,11 @@ class TTSRequest(BaseModel):
 def _clear_memory():
     """Release GPU/CPU cache after each inference so memory doesn't accumulate."""
     gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass  # CUDA context may be in error state; don't let cleanup crash the endpoint
 
 
 # ---------------------------------------------------------------------------
