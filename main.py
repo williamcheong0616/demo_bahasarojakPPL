@@ -30,7 +30,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from transformers import pipeline as hf_pipeline
+import transformers as _transformers
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -160,9 +160,9 @@ async def lifespan(app: FastAPI):
         if USE_MLX:
             # MPS can be unstable for some HF TTS models; CPU is safe on Mac
             tts_device = "mps" if torch.backends.mps.is_available() else "cpu"
-            _tts_pipeline = hf_pipeline("text-to-speech", model=TTS_MODEL_ID, device=tts_device)
+            _tts_pipeline = _transformers.pipeline("text-to-speech", model=TTS_MODEL_ID, device=tts_device)
         else:
-            _tts_pipeline = hf_pipeline("text-to-speech", model=TTS_MODEL_ID)
+            _tts_pipeline = _transformers.pipeline("text-to-speech", model=TTS_MODEL_ID)
         print("[startup] TTS ready.")
     except Exception as e:
         print(f"[startup] WARNING: TTS failed — {e}. /api/tts will return 503.")
