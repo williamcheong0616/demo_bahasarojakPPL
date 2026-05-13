@@ -227,7 +227,12 @@ def _text_to_wav(text: str) -> bytes:
         audio_np = out.get("audio", out.get("waveform"))
         if audio_np is None:
             raise RuntimeError(f"Unexpected TTS output keys: {list(out.keys())}")
-        sr = out["sampling_rate"]
+        sr = out.get("sampling_rate")
+        if not sr:
+            # Model didn't populate sampling_rate in output — read from config
+            cfg = getattr(getattr(_tts_pipeline, "model", None), "config", None)
+            sr = getattr(cfg, "sampling_rate", None) or getattr(cfg, "audio_encoder_sampling_rate", None) or 16000
+            print(f"[tts] sampling_rate was None in output, using {sr} from config/fallback")
     else:
         # Some models return a numpy array directly
         import numpy as np
