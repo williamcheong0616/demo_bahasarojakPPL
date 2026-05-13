@@ -221,6 +221,26 @@
       50%       { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
     }
 
+    /* ── Replay button ── */
+    .replay-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      margin-top: 0.5rem;
+      padding: 0.2rem 0.65rem;
+      border: 1px solid rgba(124, 58, 237, 0.35);
+      border-radius: 99px;
+      background: transparent;
+      color: #a78bfa;
+      font-size: 0.7rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      line-height: 1.6;
+    }
+    .replay-btn:hover { background: var(--accent-dim); border-color: #7c3aed; }
+    .replay-btn:active { transform: scale(0.95); }
+
     /* ── Processing spinner ── */
     .spinner {
       display: inline-block;
@@ -275,6 +295,10 @@
   let audioChunks = [];
   let micStream = null;
 
+  // Blob URLs kept alive for replay; all revoked on page unload
+  const _liveUrls = [];
+  window.addEventListener('beforeunload', () => _liveUrls.forEach(u => URL.revokeObjectURL(u)));
+
   // ---------------------------------------------------------------------------
   // DOM refs
   // ---------------------------------------------------------------------------
@@ -308,29 +332,72 @@
     document.getElementById(id).classList.add('active');
   }
 
+  // ---------------------------------------------------------------------------
+  // Audio helpers
+  // ---------------------------------------------------------------------------
+
+  /** Create a persistent blob URL (not auto-revoked — kept for replay). */
+  function makePersistentUrl(blob) {
+    const url = URL.createObjectURL(blob);
+    _liveUrls.push(url);
+    return url;
+  }
+
+  /** Play audio from a persistent URL; resolves when playback ends. */
+  function playUrl(url) {
+    const audio = new Audio(url);
+    return new Promise(resolve => {
+      audio.onended = resolve;
+      audio.onerror = resolve;
+      audio.play().catch(resolve);
+    });
+  }
+
+  /** Decode a base64 WAV string, create a persistent URL, and play it. Returns the URL. */
+  async function playBase64Audio(b64) {
+    if (!b64) return null;
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: 'audio/wav' });
+    const url = makePersistentUrl(blob);
+    await playUrl(url);
+    return url;
+  }
+
+  /** Create a persistent URL from a blob, play it, and return the URL. */
+  async function playBlob(blob) {
+    const url = makePersistentUrl(blob);
+    await playUrl(url);
+    return url;
+  }
+
+  /** Attach a ▶ Replay button to any element. */
+  function addReplayBtn(el, audioUrl) {
+    const btn = document.createElement('button');
+    btn.className = 'replay-btn';
+    btn.textContent = '▶ Replay';
+    btn.addEventListener('click', () => playUrl(audioUrl));
+    el.appendChild(btn);
+    return btn;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Conversation
+  // ---------------------------------------------------------------------------
+
+  /** Append a chat bubble. Returns the element so caller can attach a replay btn. */
   function appendMessage(role, text) {
     const div = document.createElement('div');
     div.className = `message ${role}`;
-    div.innerHTML = `<span class="label">${role === 'user' ? 'Anda' : 'AI'}</span><p>${escapeHtml(text)}</p>`;
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = role === 'user' ? 'Anda' : 'AI';
+    const p = document.createElement('p');
+    p.textContent = text;
+    div.appendChild(label);
+    div.appendChild(p);
     conversation.appendChild(div);
     conversation.scrollTop = conversation.scrollHeight;
-  }
-
-  async function playBase64Audio(b64) {
-    if (!b64) return;
-    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const blob = new Blob([bytes], { type: 'audio/wav' });
-    await playBlob(blob);
-  }
-
-  async function playBlob(blob) {
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    return new Promise(resolve => {
-      audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-      audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
-      audio.play().catch(resolve);
-    });
+    return div;
   }
 
   function enablePTT() {
@@ -361,15 +428,24 @@
       const res = await fetch('/api/greet', { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      greetingBox.textContent = data.text;
+
+      // Show greeting text
+      const textSpan = document.createElement('span');
+      textSpan.textContent = data.text;
+      greetingBox.appendChild(textSpan);
       greetingBox.classList.add('visible');
+
+      // Play greeting audio and attach replay button
       if (data.audio_b64) {
         setStatus('Memainkan salam...');
-        await playBase64Audio(data.audio_b64);
+        const greetUrl = await playBase64Audio(data.audio_b64);
+        if (greetUrl) addReplayBtn(greetingBox, greetUrl);
       }
     } catch (e) {
       console.error('Greet error:', e);
-      greetingBox.textContent = 'Halo! Saya siap nak bantu you.';
+      const textSpan = document.createElement('span');
+      textSpan.textContent = 'Halo! Saya siap nak bantu you.';
+      greetingBox.appendChild(textSpan);
       greetingBox.classList.add('visible');
     }
 
@@ -411,7 +487,6 @@
   btnPTT.addEventListener('touchstart', startRecording, { passive: false });
   btnPTT.addEventListener('mouseup', stopRecording);
   btnPTT.addEventListener('touchend', stopRecording, { passive: false });
-  // Cancel recording if pointer leaves button
   btnPTT.addEventListener('mouseleave', e => {
     if (state === State.RECORDING) stopRecording(e);
   });
@@ -450,9 +525,10 @@
         throw new Error(`SLM gagal: ${err.detail || slmRes.status}`);
       }
       const { response } = await slmRes.json();
-      appendMessage('ai', response);
+      // Show AI text immediately; replay button added once audio is ready
+      const aiMsg = appendMessage('ai', response);
 
-      // 3. TTS
+      // 3. TTS — play and attach replay button
       setSpinnerStatus('Menjana audio...');
       const ttsRes = await fetch('/api/tts', {
         method: 'POST',
@@ -463,8 +539,12 @@
         console.warn('TTS gagal, skip audio playback.');
       } else {
         const wavBlob = await ttsRes.blob();
+        const audioUrl = makePersistentUrl(wavBlob);
+        // Attach replay button before playing so user can replay immediately
+        addReplayBtn(aiMsg, audioUrl);
+        conversation.scrollTop = conversation.scrollHeight;
         setStatus('Memainkan respons...');
-        await playBlob(wavBlob);
+        await playUrl(audioUrl);
       }
 
       enablePTT();
