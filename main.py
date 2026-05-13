@@ -212,13 +212,34 @@ def _clear_memory():
 def _text_to_wav(text: str) -> bytes:
     if _tts_pipeline is None:
         raise RuntimeError("TTS not loaded")
-    out = _tts_pipeline(text)
-    audio_np = out.get("audio", out.get("waveform"))
-    if audio_np is None:
-        raise RuntimeError(f"Unexpected TTS output keys: {list(out.keys())}")
-    sr = out["sampling_rate"]
-    if audio_np.ndim > 1:
+
+    import traceback as _tb
+    try:
+        out = _tts_pipeline(text)
+    except Exception as e:
+        print(f"[tts] pipeline call failed:\n{_tb.format_exc()}")
+        raise
+
+    print(f"[tts] output type={type(out).__name__}  keys={list(out.keys()) if isinstance(out, dict) else 'N/A'}")
+
+    # Handle dict output (most HF TTS pipelines)
+    if isinstance(out, dict):
+        audio_np = out.get("audio", out.get("waveform"))
+        if audio_np is None:
+            raise RuntimeError(f"Unexpected TTS output keys: {list(out.keys())}")
+        sr = out["sampling_rate"]
+    else:
+        # Some models return a numpy array directly
+        import numpy as np
+        audio_np = out if hasattr(out, "ndim") else out[0]
+        sr = _tts_pipeline.model.config.sampling_rate if hasattr(_tts_pipeline.model.config, "sampling_rate") else 22050
+        print(f"[tts] non-dict output, assuming sr={sr}")
+
+    if hasattr(audio_np, "ndim") and audio_np.ndim > 1:
         audio_np = audio_np.squeeze()
+
+    print(f"[tts] audio shape={getattr(audio_np, 'shape', '?')}  sr={sr}  dtype={getattr(audio_np, 'dtype', '?')}")
+
     buf = io.BytesIO()
     sf.write(buf, audio_np, sr, format="WAV")
     buf.seek(0)
