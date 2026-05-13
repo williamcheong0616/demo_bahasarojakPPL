@@ -160,7 +160,7 @@ async def lifespan(app: FastAPI):
         _tts_tokenizer = AutoTokenizer.from_pretrained(TTS_MODEL_ID)
         _tts_model = AutoModelForCausalLM.from_pretrained(
             TTS_MODEL_ID,
-            torch_dtype=torch.float16 if _tts_device != "cpu" else torch.float32,
+            torch_dtype=torch.bfloat16 if _tts_device != "cpu" else torch.float32,
             device_map=_tts_device,
         )
         _tts_model.eval()
