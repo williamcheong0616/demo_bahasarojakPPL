@@ -226,10 +226,9 @@ def _clear_memory():
 # TTS helpers
 # ---------------------------------------------------------------------------
 
-def _text_to_wav(text: str, speaker: str = TTS_SPEAKER) -> bytes:
-    if _tts_model is None or _tts_codec is None:
-        raise RuntimeError("TTS not loaded")
-
+def _tts_chunk(text: str, speaker: str) -> "np.ndarray":
+    """Generate audio for a single short chunk of text. Returns float32 numpy array."""
+    import numpy as np
     prompt = f"<|im_start|>{speaker}: {text}<|speech_start|>"
     inputs = _tts_tokenizer(prompt, return_tensors="pt", add_special_tokens=True)
     inputs = {k: v.to(_tts_device) for k, v in inputs.items()}
@@ -248,13 +247,65 @@ def _text_to_wav(text: str, speaker: str = TTS_SPEAKER) -> bytes:
     audio_tokens = [int(t) for t in re.findall(r"<\|s_(\d+)\|>", speech_part)]
 
     if not audio_tokens:
-        raise RuntimeError("TTS generated no audio tokens — check speaker name or prompt format")
+        return np.zeros(0, dtype=np.float32)
 
     audio_codes = torch.tensor(audio_tokens, dtype=torch.long)[None, None].to(_tts_device)
     with torch.no_grad():
         waveform = _tts_codec.decode_code(audio_codes)
 
-    audio_np = waveform[0, 0].cpu().float().numpy()
+    return waveform[0, 0].cpu().float().numpy()
+
+
+def _split_sentences(text: str, max_chars: int = 200) -> list[str]:
+    """Split text into sentence chunks no longer than max_chars."""
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    chunks, current = [], ""
+    for sent in sentences:
+        if not sent:
+            continue
+        # If a single sentence exceeds max_chars, split further on commas/semicolons
+        if len(sent) > max_chars:
+            sub = re.split(r'(?<=[,;:])\s+', sent)
+            for s in sub:
+                if len(current) + len(s) + 1 <= max_chars:
+                    current = (current + " " + s).strip()
+                else:
+                    if current:
+                        chunks.append(current)
+                    current = s
+        elif len(current) + len(sent) + 1 <= max_chars:
+            current = (current + " " + sent).strip()
+        else:
+            if current:
+                chunks.append(current)
+            current = sent
+    if current:
+        chunks.append(current)
+    return chunks or [text[:max_chars]]
+
+
+def _text_to_wav(text: str, speaker: str = TTS_SPEAKER) -> bytes:
+    if _tts_model is None or _tts_codec is None:
+        raise RuntimeError("TTS not loaded")
+
+    import numpy as np
+    chunks = _split_sentences(text)
+    print(f"[tts] Generating {len(chunks)} chunk(s) for {len(text)} chars")
+
+    parts = []
+    silence = np.zeros(int(TTS_SAMPLE_RATE * 0.15), dtype=np.float32)  # 150ms pause between chunks
+    for i, chunk in enumerate(chunks):
+        print(f"[tts] chunk {i+1}/{len(chunks)}: {chunk[:60]}...")
+        audio = _tts_chunk(chunk, speaker)
+        if audio.size > 0:
+            parts.append(audio)
+            if i < len(chunks) - 1:
+                parts.append(silence)
+
+    if not parts:
+        raise RuntimeError("TTS generated no audio for any chunk")
+
+    audio_np = np.concatenate(parts)
     buf = io.BytesIO()
     sf.write(buf, audio_np, TTS_SAMPLE_RATE, format="WAV")
     buf.seek(0)

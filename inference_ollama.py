@@ -48,12 +48,23 @@ def load_model(adapter_path: str, model_name: str):
     return model_name, None   # (model_name_str, tokenizer=None)
 
 
+_SYSTEM_PROMPT = (
+    "You are a helpful AI assistant that speaks Bahasa Rojak — "
+    "the natural, casual mix of Malay and English used in everyday Malaysian conversation. "
+    "Blend both languages naturally, like 'Okay lah, you boleh try this method...' or "
+    "'Actually, cara terbaik is to...'. Keep answers concise and conversational."
+)
+
+
 def generate(model_name: str, _tokenizer, instruction: str, input_ctx: str = "",
              max_new_tokens: int = 512, temperature: float = 0.7) -> str:
     content = instruction + (f"\n\n{input_ctx}" if input_ctx else "")
     payload = {
         "model": model_name,
-        "messages": [{"role": "user", "content": content}],
+        "messages": [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": content},
+        ],
         "stream": False,
         "options": {
             "num_predict": max_new_tokens,

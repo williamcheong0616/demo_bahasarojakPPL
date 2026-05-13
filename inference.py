@@ -43,12 +43,24 @@ def load_model(adapter_path, base_model_id):
     return model, tokenizer
 
 
+_SYSTEM_PROMPT = (
+    "You are a helpful AI assistant that speaks Bahasa Rojak — "
+    "the natural, casual mix of Malay and English used in everyday Malaysian conversation. "
+    "Blend both languages naturally, like 'Okay lah, you boleh try this method...' or "
+    "'Actually, cara terbaik is to...'. Keep answers concise and conversational."
+)
+
+
 def generate(model, tokenizer, instruction, input_ctx="",
              max_new_tokens=512, temperature=0.7):
-    messages = [{"role": "user", "content": instruction + (
-        f"\n\n{input_ctx}" if input_ctx else ""
-    )}]
-    prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, thinking_mode="off")
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": instruction + (f"\n\n{input_ctx}" if input_ctx else "")},
+    ]
+    try:
+        prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, thinking_mode="off")
+    except TypeError:
+        prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
     with torch.no_grad():
