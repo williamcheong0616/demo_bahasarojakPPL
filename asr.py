@@ -12,7 +12,6 @@ Usage:
 """
 
 import os
-import re
 
 import librosa
 import numpy as np
@@ -42,19 +41,6 @@ def load_model(model_path: str, base_model_id: str = "openai/whisper-large-v3"):
 
     processor = WhisperProcessor.from_pretrained(source)
 
-    # Build Latin-only suppression list — keeps a-z, A-Z, digits, basic punctuation.
-    # This preserves Malay/English romanisation and blocks CJK / Devanagari / etc.
-    _latin = re.compile(r"^[a-zA-Z0-9\s.,'\"\-_?!]+$")
-    bad_words_ids = [
-        [idx]
-        for token, idx in processor.tokenizer.get_vocab().items()
-        if not token.startswith("<|")
-        and not _latin.match(
-            token.replace("Ġ", " ").replace("▁", " ")  # BPE / SPM space markers
-        )
-    ]
-    print(f"[ASR] Latin-only filter active — {len(bad_words_ids)} tokens suppressed.")
-
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     dtype  = torch.float16 if torch.cuda.is_available() else torch.float32
 
@@ -73,10 +59,10 @@ def load_model(model_path: str, base_model_id: str = "openai/whisper-large-v3"):
         torch_dtype=dtype,
     )
 
-    return pipe, bad_words_ids
+    return pipe, None   # bad_words_ids removed — language param is sufficient
 
 
-def transcribe(audio_path: str, pipe, bad_words_ids,
+def transcribe(audio_path: str, pipe, bad_words_ids=None,
                language: str = "ms") -> str:
     """
     Transcribe an audio file using the loaded Whisper pipeline.
@@ -84,15 +70,11 @@ def transcribe(audio_path: str, pipe, bad_words_ids,
     Resamples to 16 kHz via librosa (handles webm, mp4, ogg, wav, mp3, etc.
     as long as ffmpeg is installed).
     """
-    audio_array, sr = librosa.load(audio_path, sr=16000, mono=True)
+    audio_array, _ = librosa.load(audio_path, sr=16000, mono=True)
     audio_array = np.asarray(audio_array, dtype=np.float32).squeeze()
 
     result = pipe(
-        {"raw": audio_array, "sampling_rate": sr},
-        generate_kwargs={
-            "task": "transcribe",
-            "language": language,
-            "bad_words_ids": bad_words_ids,
-        },
+        {"raw": audio_array, "sampling_rate": 16000},
+        generate_kwargs={"task": "transcribe", "language": language},
     )
     return result["text"].strip()

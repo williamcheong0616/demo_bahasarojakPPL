@@ -283,13 +283,17 @@ def _write_tmp(data: bytes, suffix: str) -> str:
 
 @app.post("/api/greet", response_model=GreetResponse)
 async def greet():
-    try:
-        audio_b64 = await asyncio.to_thread(_tts_to_b64, GREETING_TEXT)
-    except Exception as e:
-        print(f"[greet] TTS error: {e}")
-        audio_b64 = ""
-    finally:
-        _clear_memory()
+    import traceback
+    audio_b64 = ""
+    if _tts_model is None or _tts_codec is None:
+        print("[greet] TTS not loaded — skipping audio")
+    else:
+        try:
+            audio_b64 = await asyncio.to_thread(_tts_to_b64, GREETING_TEXT)
+        except Exception:
+            print(f"[greet] TTS error:\n{traceback.format_exc()}")
+        finally:
+            _clear_memory()
     return GreetResponse(text=GREETING_TEXT, audio_b64=audio_b64)
 
 
