@@ -1,0 +1,7 @@
+from inference import setup_inference_pipeline, transcribe_audio
+
+# Do this ONCE when your app starts
+pipe, bad_words_ids = setup_inference_pipeline("openai/whisper-large-v3", "final_adapter")
+
+# Do this every time a user uploads an audio file
+text = transcribe_audio("user_upload.wav", pipe, bad_words_ids)

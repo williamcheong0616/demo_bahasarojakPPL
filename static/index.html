@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bahasa Rojak AI Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --surface2: #242424;
+      --border: #2e2e2e;
+      --accent: #7c3aed;
+      --accent-hover: #6d28d9;
+      --accent-dim: rgba(124, 58, 237, 0.15);
+      --user-color: #2563eb;
+      --user-dim: rgba(37, 99, 235, 0.15);
+      --text: #e5e5e5;
+      --text-muted: #888;
+      --red: #dc2626;
+      --red-dim: rgba(220, 38, 38, 0.15);
+      --green: #16a34a;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* ── Screens ── */
+    .screen { display: none; width: 100%; max-width: 640px; padding: 2rem; }
+    .screen.active { display: flex; flex-direction: column; align-items: center; }
+
+    /* ── Start screen ── */
+    #screen-start { text-align: center; gap: 1.5rem; }
+    #screen-start h1 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #a78bfa, #7c3aed);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    #screen-start p { color: var(--text-muted); font-size: 1rem; line-height: 1.6; }
+    #screen-start .subtitle { font-size: 0.85rem; color: var(--text-muted); }
+
+    .pill-badge {
+      display: inline-flex;
+      gap: 0.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      padding: 0.3rem 0.9rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      letter-spacing: 0.03em;
+    }
+    .pill-badge span { color: #a78bfa; }
+
+    /* ── Buttons ── */
+    .btn {
+      cursor: pointer;
+      border: none;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      padding: 0.85rem 2.2rem;
+      transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 0 20px rgba(124, 58, 237, 0.35);
+    }
+    .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 0 28px rgba(124, 58, 237, 0.5); }
+    .btn-primary:disabled { background: #3a3a3a; color: var(--text-muted); box-shadow: none; cursor: not-allowed; }
+
+    /* ── Main screen ── */
+    #screen-main {
+      height: 100dvh;
+      padding: 1.5rem;
+      gap: 0;
+      justify-content: space-between;
+    }
+
+    #header {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    #header h2 { font-size: 1rem; font-weight: 600; color: var(--text-muted); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+
+    /* ── Greeting box ── */
+    #greeting-box {
+      width: 100%;
+      margin: 1rem 0 0.5rem;
+      background: var(--accent-dim);
+      border: 1px solid rgba(124, 58, 237, 0.3);
+      border-radius: 12px;
+      padding: 1rem 1.2rem;
+      font-size: 0.9rem;
+      line-height: 1.6;
+      color: #c4b5fd;
+      display: none;
+    }
+    #greeting-box.visible { display: block; }
+
+    /* ── Conversation ── */
+    #conversation {
+      flex: 1;
+      width: 100%;
+      overflow-y: auto;
+      padding: 0.75rem 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .message {
+      max-width: 85%;
+      border-radius: 12px;
+      padding: 0.75rem 1rem;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+    .message .label {
+      display: block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 0.3rem;
+      opacity: 0.7;
+    }
+    .message.user {
+      align-self: flex-end;
+      background: var(--user-dim);
+      border: 1px solid rgba(37, 99, 235, 0.3);
+      color: #93c5fd;
+    }
+    .message.user .label { color: #60a5fa; }
+    .message.ai {
+      align-self: flex-start;
+      background: var(--accent-dim);
+      border: 1px solid rgba(124, 58, 237, 0.3);
+      color: #c4b5fd;
+    }
+    .message.ai .label { color: #a78bfa; }
+
+    /* ── PTT area ── */
+    #ptt-area {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+
+    #status-text {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      min-height: 1.2em;
+      text-align: center;
+    }
+    #status-text.error { color: #f87171; }
+    #status-text.success { color: #86efac; }
+
+    #btn-ptt {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      border: 3px solid var(--accent);
+      background: var(--accent-dim);
+      color: #a78bfa;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    #btn-ptt:hover:not(:disabled) {
+      background: rgba(124, 58, 237, 0.25);
+      box-shadow: 0 0 20px rgba(124, 58, 237, 0.3);
+    }
+    #btn-ptt.recording {
+      border-color: var(--red);
+      background: var(--red-dim);
+      color: #fca5a5;
+      animation: pulse 1s ease-in-out infinite;
+    }
+    #btn-ptt:disabled {
+      border-color: var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: not-allowed;
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+      50%       { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
+    }
+
+    /* ── Processing spinner ── */
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: #a78bfa;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 0.4rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<!-- ── Start screen ── -->
+<div id="screen-start" class="screen active">
+  <h1>Bahasa Rojak AI</h1>
+  <div class="pill-badge">
+    <span>ASR</span> → <span>SLM</span> → <span>TTS</span>
+  </div>
+  <p>Demo pipeline: cakap soalan, AI faham dan jawab balik dalam audio.</p>
+  <button id="btn-start" class="btn btn-primary">Ya, Mula!</button>
+  <p class="subtitle">Perlukan akses mikrofon</p>
+</div>
+
+<!-- ── Main screen ── -->
+<div id="screen-main" class="screen">
+  <div id="header">
+    <div class="dot"></div>
+    <h2>Bahasa Rojak AI Demo</h2>
+  </div>
+
+  <div id="greeting-box"></div>
+  <div id="conversation"></div>
+
+  <div id="ptt-area">
+    <div id="status-text">Memuatkan...</div>
+    <button id="btn-ptt" disabled>Tahan</button>
+  </div>
+</div>
+
+<script>
+  // ---------------------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------------------
+  const State = Object.freeze({ IDLE: 0, GREETING: 1, READY: 2, RECORDING: 3, PROCESSING: 4 });
+  let state = State.IDLE;
+  let mediaRecorder = null;
+  let audioChunks = [];
+  let micStream = null;
+
+  // ---------------------------------------------------------------------------
+  // DOM refs
+  // ---------------------------------------------------------------------------
+  const screenStart = document.getElementById('screen-start');
+  const screenMain  = document.getElementById('screen-main');
+  const btnStart    = document.getElementById('btn-start');
+  const greetingBox = document.getElementById('greeting-box');
+  const conversation= document.getElementById('conversation');
+  const statusText  = document.getElementById('status-text');
+  const btnPTT      = document.getElementById('btn-ptt');
+
+  // ---------------------------------------------------------------------------
+  // Utilities
+  // ---------------------------------------------------------------------------
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function setStatus(msg, type = '') {
+    statusText.className = type;
+    statusText.innerHTML = msg;
+  }
+
+  function setSpinnerStatus(msg) {
+    setStatus(`<span class="spinner"></span>${escapeHtml(msg)}`);
+  }
+
+  function showScreen(id) {
+    screenStart.classList.remove('active');
+    screenMain.classList.remove('active');
+    document.getElementById(id).classList.add('active');
+  }
+
+  function appendMessage(role, text) {
+    const div = document.createElement('div');
+    div.className = `message ${role}`;
+    div.innerHTML = `<span class="label">${role === 'user' ? 'Anda' : 'AI'}</span><p>${escapeHtml(text)}</p>`;
+    conversation.appendChild(div);
+    conversation.scrollTop = conversation.scrollHeight;
+  }
+
+  async function playBase64Audio(b64) {
+    if (!b64) return;
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: 'audio/wav' });
+    await playBlob(blob);
+  }
+
+  async function playBlob(blob) {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    return new Promise(resolve => {
+      audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+      audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+      audio.play().catch(resolve);
+    });
+  }
+
+  function enablePTT() {
+    state = State.READY;
+    btnPTT.disabled = false;
+    btnPTT.textContent = 'Tahan';
+    setStatus('Tahan butang untuk bercakap');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Start button
+  // ---------------------------------------------------------------------------
+  btnStart.addEventListener('click', async () => {
+    btnStart.disabled = true;
+    state = State.GREETING;
+    showScreen('screen-main');
+    setSpinnerStatus('Meminta akses mikrofon...');
+
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      setStatus('Akses mikrofon ditolak. Sila benarkan akses dan muat semula.', 'error');
+      return;
+    }
+
+    setSpinnerStatus('Memuatkan salam...');
+    try {
+      const res = await fetch('/api/greet', { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      greetingBox.textContent = data.text;
+      greetingBox.classList.add('visible');
+      if (data.audio_b64) {
+        setStatus('Memainkan salam...');
+        await playBase64Audio(data.audio_b64);
+      }
+    } catch (e) {
+      console.error('Greet error:', e);
+      greetingBox.textContent = 'Halo! Saya siap nak bantu you.';
+      greetingBox.classList.add('visible');
+    }
+
+    enablePTT();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Push-to-talk
+  // ---------------------------------------------------------------------------
+  function startRecording(e) {
+    e.preventDefault();
+    if (state !== State.READY) return;
+    state = State.RECORDING;
+    audioChunks = [];
+
+    const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg', 'audio/mp4', '']
+      .find(t => t === '' || MediaRecorder.isTypeSupported(t));
+    mediaRecorder = new MediaRecorder(micStream, mimeType ? { mimeType } : {});
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.onstop = handleRecordingDone;
+    mediaRecorder.start();
+
+    btnPTT.classList.add('recording');
+    btnPTT.textContent = 'Rakam...';
+    setStatus('Rakaman sedang berlaku... lepaskan apabila selesai');
+  }
+
+  function stopRecording(e) {
+    e.preventDefault();
+    if (state !== State.RECORDING || !mediaRecorder) return;
+    mediaRecorder.stop();
+    state = State.PROCESSING;
+    btnPTT.classList.remove('recording');
+    btnPTT.disabled = true;
+    btnPTT.textContent = 'Tahan';
+  }
+
+  btnPTT.addEventListener('mousedown', startRecording);
+  btnPTT.addEventListener('touchstart', startRecording, { passive: false });
+  btnPTT.addEventListener('mouseup', stopRecording);
+  btnPTT.addEventListener('touchend', stopRecording, { passive: false });
+  // Cancel recording if pointer leaves button
+  btnPTT.addEventListener('mouseleave', e => {
+    if (state === State.RECORDING) stopRecording(e);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Pipeline: ASR → SLM → TTS
+  // ---------------------------------------------------------------------------
+  async function handleRecordingDone() {
+    try {
+      const mimeType = audioChunks[0]?.type || 'audio/webm';
+      const ext = mimeType.includes('ogg') ? '.ogg' : mimeType.includes('mp4') ? '.mp4' : '.webm';
+      const blob = new Blob(audioChunks, { type: mimeType });
+
+      // 1. ASR
+      setSpinnerStatus('Mengenal pasti audio...');
+      const formData = new FormData();
+      formData.append('file', blob, `recording${ext}`);
+      const asrRes = await fetch('/api/asr', { method: 'POST', body: formData });
+      if (!asrRes.ok) {
+        const err = await asrRes.json().catch(() => ({}));
+        throw new Error(`ASR gagal: ${err.detail || asrRes.status}`);
+      }
+      const { transcript } = await asrRes.json();
+      if (!transcript) throw new Error('Tiada teks dikesan dalam audio.');
+      appendMessage('user', transcript);
+
+      // 2. SLM
+      setSpinnerStatus('Menjana respons...');
+      const slmRes = await fetch('/api/slm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: transcript }),
+      });
+      if (!slmRes.ok) {
+        const err = await slmRes.json().catch(() => ({}));
+        throw new Error(`SLM gagal: ${err.detail || slmRes.status}`);
+      }
+      const { response } = await slmRes.json();
+      appendMessage('ai', response);
+
+      // 3. TTS
+      setSpinnerStatus('Menjana audio...');
+      const ttsRes = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: response }),
+      });
+      if (!ttsRes.ok) {
+        console.warn('TTS gagal, skip audio playback.');
+      } else {
+        const wavBlob = await ttsRes.blob();
+        setStatus('Memainkan respons...');
+        await playBlob(wavBlob);
+      }
+
+      enablePTT();
+    } catch (err) {
+      console.error('Pipeline error:', err);
+      setStatus(`Ralat: ${err.message}`, 'error');
+      state = State.READY;
+      btnPTT.disabled = false;
+      btnPTT.textContent = 'Tahan';
+    }
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Additional dependencies for Apple Silicon (MLX) — install alongside requirements.txt
+# pip install -r requirements.txt -r requirements-mlx.txt
+#
+# These packages only build on macOS Apple Silicon (arm64).
+# Do NOT install on Linux/CUDA machines.
+
+mlx>=0.16.0
+mlx-lm>=0.16.0
+mlx-whisper>=0.4.1
