@@ -12,6 +12,8 @@ Usage:
   python run.py --backend cuda   # force CUDA SLM
   python run.py --port 8080      # custom port
   python run.py --no-browser     # don't open browser automatically
+  python run.py --https          # enable HTTPS with a self-signed cert (required for mic over VPN/LAN)
+  python run.py --https --cert cert.pem --key key.pem  # bring your own cert
 """
 
 import argparse
@@ -64,6 +66,38 @@ def _check_ffmpeg():
         _print("WARNING: ffmpeg not found. ASR will fail without it.", "run")
         _print("  macOS:  brew install ffmpeg", "run")
         _print("  Linux:  sudo apt install ffmpeg", "run")
+
+
+def _ensure_cert(cert_path: str, key_path: str):
+    """Generate a self-signed cert/key pair if either file is missing."""
+    import os
+    if os.path.isfile(cert_path) and os.path.isfile(key_path):
+        _print(f"Using existing cert: {cert_path}", "run")
+        return
+
+    if not _has_cmd("openssl"):
+        _print("ERROR: 'openssl' not found — cannot generate a self-signed cert.", "run")
+        _print("Install openssl, or provide --cert / --key pointing to existing files.", "run")
+        sys.exit(1)
+
+    _print("Generating self-signed certificate (valid 365 days)...", "run")
+    result = subprocess.run([
+        "openssl", "req", "-x509",
+        "-newkey", "rsa:4096",
+        "-keyout", key_path,
+        "-out", cert_path,
+        "-days", "365",
+        "-nodes",
+        "-subj", "/CN=rojak-demo",
+    ], capture_output=True)
+
+    if result.returncode != 0:
+        _print("ERROR: openssl failed:", "run")
+        _print(result.stderr.decode(), "run")
+        sys.exit(1)
+
+    _print(f"Certificate written to {cert_path}", "run")
+    _print(f"Private key  written to {key_path}", "run")
 
 
 def _ensure_ollama(model: str):
@@ -142,6 +176,10 @@ def main():
     parser.add_argument("--port", type=int, default=8000, help="Port (default: 8000)")
     parser.add_argument("--no-browser", action="store_true", help="Don't open browser")
     parser.add_argument("--reload", action="store_true", help="Enable uvicorn auto-reload (dev)")
+    parser.add_argument("--https", action="store_true",
+                        help="Serve over HTTPS with a self-signed cert (required for mic access over VPN/LAN)")
+    parser.add_argument("--cert", default="cert.pem", help="Path to TLS certificate (default: cert.pem)")
+    parser.add_argument("--key",  default="key.pem",  help="Path to TLS private key  (default: key.pem)")
     args = parser.parse_args()
 
     # ── Detect backend ───────────────────────────────────────────────────────
@@ -160,9 +198,19 @@ def main():
     env["SLM_BACKEND"]  = backend
     env["OLLAMA_MODEL"] = args.ollama_model
 
+    # ── TLS / HTTPS setup ────────────────────────────────────────────────────
+    use_https = args.https
+    if use_https:
+        _ensure_cert(args.cert, args.key)
+
+    scheme = "https" if use_https else "http"
+
     # ── Start uvicorn ────────────────────────────────────────────────────────
-    url = f"http://localhost:{args.port}"
+    url = f"{scheme}://localhost:{args.port}"
     _print(f"Starting server at {url}", "run")
+    if use_https:
+        _print("NOTE: Your browser will show a security warning for the self-signed cert.", "run")
+        _print("      Click 'Advanced' → 'Proceed' (or 'Accept the Risk') to continue.", "run")
     _print("Startup takes 2–5 min while models load. Watch for '[startup] ... ready.' lines.", "run")
 
     cmd = [
@@ -170,6 +218,8 @@ def main():
         "--host", args.host,
         "--port", str(args.port),
     ]
+    if use_https:
+        cmd += ["--ssl-certfile", args.cert, "--ssl-keyfile", args.key]
     if args.reload:
         cmd.append("--reload")
 
@@ -186,7 +236,10 @@ def main():
         threading.Thread(target=_open_browser, daemon=True).start()
     elif not has_display:
         _print(f"Headless server detected — open {url} in your local browser", "run")
-        _print("Tip: SSH tunnel with:  ssh -L {port}:localhost:{port} <user>@<server>".format(port=args.port), "run")
+        if use_https:
+            _print("Tip: Access directly via https://<server-ip>:{port} over VPN".format(port=args.port), "run")
+        else:
+            _print("Tip: SSH tunnel with:  ssh -L {port}:localhost:{port} <user>@<server>".format(port=args.port), "run")
 
     try:
         subprocess.run(cmd, env=env)
