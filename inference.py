@@ -8,6 +8,7 @@ Usage:
 """
 
 import argparse
+import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
@@ -27,8 +28,12 @@ def load_model(adapter_path, base_model_id):
     )
     tokenizer = AutoTokenizer.from_pretrained(base_model_id)
 
-    print(f"🔗 Loading adapter: {adapter_path}")
-    model = PeftModel.from_pretrained(model, adapter_path)
+    adapter_cfg = os.path.join(adapter_path, "adapter_config.json")
+    if os.path.isfile(adapter_cfg):
+        print(f"🔗 Loading adapter: {adapter_path}")
+        model = PeftModel.from_pretrained(model, adapter_path)
+    else:
+        print(f"⚠️  Adapter not found at '{adapter_path}' — using base model only")
     model.eval()
 
     if tokenizer.pad_token is None:
