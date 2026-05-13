@@ -24,6 +24,7 @@ import base64
 import gc
 import io
 import os
+import re
 import tempfile
 from contextlib import asynccontextmanager
 
@@ -33,7 +34,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import transformers as _transformers
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from asr import load_model as _load_asr, transcribe as _asr_transcribe
 
@@ -59,7 +60,10 @@ SLM_ADAPTER_PATH = "./output/llama-8b/final"
 OLLAMA_MODEL     = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
 
 # TTS
-TTS_MODEL_ID = "Scicom-intl/Multilingual-TTS-1.7B-Base"
+TTS_MODEL_ID  = "Scicom-intl/Multilingual-TTS-1.7B-Base"
+TTS_CODEC_ID  = "neuphonic/neucodec"
+TTS_SPEAKER   = "husein"   # default speaker voice
+TTS_SAMPLE_RATE = 24000
 
 # ---------------------------------------------------------------------------
 # Backend detection
@@ -84,7 +88,7 @@ else:
     SLM_BACKEND = "mlx" if USE_MLX else "cuda"
 
 print(f"[backend] ASR={'mlx_whisper' if USE_MLX else 'Whisper (transformers)'}  "
-      f"SLM={SLM_BACKEND}  TTS=transformers")
+      f"SLM={SLM_BACKEND}  TTS=NeuCodec+Qwen3")
 
 # ---------------------------------------------------------------------------
 # Backend-specific SLM imports
@@ -108,7 +112,10 @@ _asr_pipe      = None   # transformers ASR pipeline (CUDA) or model-repo str (ML
 _asr_bad_words = None   # Latin-only suppression list (CUDA path only)
 _slm_model     = None
 _slm_tokenizer = None
-_tts_pipeline  = None
+_tts_model     = None
+_tts_tokenizer = None
+_tts_codec     = None
+_tts_device    = "cpu"
 
 # ---------------------------------------------------------------------------
 # Startup
@@ -116,7 +123,8 @@ _tts_pipeline  = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _asr_pipe, _asr_bad_words, _slm_model, _slm_tokenizer, _tts_pipeline
+    global _asr_pipe, _asr_bad_words, _slm_model, _slm_tokenizer
+    global _tts_model, _tts_tokenizer, _tts_codec, _tts_device
 
     # ── ASR ──────────────────────────────────────────────────────────────────
     if USE_MLX:
@@ -141,17 +149,23 @@ async def lifespan(app: FastAPI):
         print(f"[startup] WARNING: SLM failed — {e}. /api/slm will return 503.")
 
     # ── TTS ──────────────────────────────────────────────────────────────────
-    print(f"[startup] TTS: {TTS_MODEL_ID}")
+    print(f"[startup] TTS: {TTS_MODEL_ID}  codec: {TTS_CODEC_ID}")
     try:
-        tts_device = (
+        from neucodec import NeuCodec
+        _tts_device = (
             "mps" if (USE_MLX and torch.backends.mps.is_available()) else
             "cuda" if torch.cuda.is_available() else
             "cpu"
         )
-        _tts_pipeline = _transformers.pipeline(
-            "text-to-speech", model=TTS_MODEL_ID, device=tts_device
+        _tts_tokenizer = AutoTokenizer.from_pretrained(TTS_MODEL_ID)
+        _tts_model = AutoModelForCausalLM.from_pretrained(
+            TTS_MODEL_ID,
+            torch_dtype=torch.float16 if _tts_device != "cpu" else torch.float32,
+            device_map=_tts_device,
         )
-        print(f"[startup] TTS ready (device={tts_device}).")
+        _tts_model.eval()
+        _tts_codec = NeuCodec.from_pretrained(TTS_CODEC_ID).eval().to(_tts_device)
+        print(f"[startup] TTS ready (device={_tts_device}).")
     except Exception as e:
         print(f"[startup] WARNING: TTS failed — {e}. /api/tts will return 503.")
 
@@ -209,31 +223,37 @@ def _clear_memory():
 # TTS helpers
 # ---------------------------------------------------------------------------
 
-def _text_to_wav(text: str) -> bytes:
-    if _tts_pipeline is None:
+def _text_to_wav(text: str, speaker: str = TTS_SPEAKER) -> bytes:
+    if _tts_model is None or _tts_codec is None:
         raise RuntimeError("TTS not loaded")
 
-    out = _tts_pipeline(text, generate_kwargs={"max_new_tokens": 4096})
+    prompt = f"<|im_start|>{speaker}: {text}<|speech_start|>"
+    inputs = _tts_tokenizer(prompt, return_tensors="pt", add_special_tokens=True)
+    inputs = {k: v.to(_tts_device) for k, v in inputs.items()}
 
-    # Handle dict output (most HF TTS pipelines)
-    if isinstance(out, dict):
-        audio_np = out.get("audio", out.get("waveform"))
-        if audio_np is None:
-            raise RuntimeError(f"Unexpected TTS output keys: {list(out.keys())}")
-        sr = out.get("sampling_rate")
-        if not sr:
-            cfg = getattr(getattr(_tts_pipeline, "model", None), "config", None)
-            sr = getattr(cfg, "sampling_rate", None) or getattr(cfg, "audio_encoder_sampling_rate", None) or 16000
-    else:
-        audio_np = out if hasattr(out, "ndim") else out[0]
-        cfg = getattr(getattr(_tts_pipeline, "model", None), "config", None)
-        sr = getattr(cfg, "sampling_rate", None) or 16000
+    with torch.no_grad():
+        outputs = _tts_model.generate(
+            **inputs,
+            max_new_tokens=2048,
+            do_sample=True,
+            temperature=0.8,
+            repetition_penalty=1.15,
+        )
 
-    if hasattr(audio_np, "ndim") and audio_np.ndim > 1:
-        audio_np = audio_np.squeeze()
+    generated = _tts_tokenizer.decode(outputs[0], skip_special_tokens=False)
+    speech_part = generated.split("<|speech_start|>")[-1]
+    audio_tokens = [int(t) for t in re.findall(r"<\|s_(\d+)\|>", speech_part)]
 
+    if not audio_tokens:
+        raise RuntimeError("TTS generated no audio tokens — check speaker name or prompt format")
+
+    audio_codes = torch.tensor(audio_tokens, dtype=torch.long)[None, None].to(_tts_device)
+    with torch.no_grad():
+        waveform = _tts_codec.decode_code(audio_codes)
+
+    audio_np = waveform[0, 0].cpu().float().numpy()
     buf = io.BytesIO()
-    sf.write(buf, audio_np, sr, format="WAV")
+    sf.write(buf, audio_np, TTS_SAMPLE_RATE, format="WAV")
     buf.seek(0)
     return buf.read()
 
@@ -308,7 +328,7 @@ async def slm(body: SLMRequest):
 
 @app.post("/api/tts")
 async def tts(body: TTSRequest):
-    if _tts_pipeline is None:
+    if _tts_model is None or _tts_codec is None:
         raise HTTPException(status_code=503, detail="TTS model not available")
     try:
         wav_bytes = await asyncio.to_thread(_text_to_wav, body.text)
