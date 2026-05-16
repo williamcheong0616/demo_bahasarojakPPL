@@ -206,7 +206,7 @@ def main():
     scheme = "https" if use_https else "http"
 
     # ── Start uvicorn ────────────────────────────────────────────────────────
-    url = f"{scheme}://localhost:{args.port}"
+    url = f"{scheme}://{args.host}:{args.port}"
     _print(f"Starting server at {url}", "run")
     if use_https:
         _print("NOTE: Your browser will show a security warning for the self-signed cert.", "run")
