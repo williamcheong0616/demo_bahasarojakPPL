@@ -10,7 +10,7 @@ Usage:
   python run.py --backend ollama # force Ollama SLM
   python run.py --backend mlx    # force MLX SLM
   python run.py --backend cuda   # force CUDA SLM
-  python run.py --port 8080      # custom port
+  python run.py --port 7860      # custom port
   python run.py --no-browser     # don't open browser automatically
   python run.py --https          # enable HTTPS with a self-signed cert (required for mic over VPN/LAN)
   python run.py --https --cert cert.pem --key key.pem  # bring your own cert
@@ -173,7 +173,7 @@ def main():
         help="Ollama model tag to use (default: gemma3:4b)"
     )
     parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=7860, help="Port (default: 8000)")
+    parser.add_argument("--port", type=int, default=7860, help="Port (default: 7860)")
     parser.add_argument("--no-browser", action="store_true", help="Don't open browser")
     parser.add_argument("--reload", action="store_true", help="Enable uvicorn auto-reload (dev)")
     parser.add_argument("--https", action="store_true",
