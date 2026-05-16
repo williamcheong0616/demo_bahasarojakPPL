@@ -173,7 +173,7 @@ def main():
         help="Ollama model tag to use (default: gemma3:4b)"
     )
     parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=8000, help="Port (default: 8000)")
+    parser.add_argument("--port", type=int, default=7860, help="Port (default: 8000)")
     parser.add_argument("--no-browser", action="store_true", help="Don't open browser")
     parser.add_argument("--reload", action="store_true", help="Enable uvicorn auto-reload (dev)")
     parser.add_argument("--https", action="store_true",
