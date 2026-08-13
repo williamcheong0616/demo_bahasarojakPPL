@@ -70,16 +70,21 @@ NEVER respond in pure Malay or pure English. Always mix both languages in every 
 
 
 def generate(model_name: str, _tokenizer, instruction: str, input_ctx: str = "",
-             max_new_tokens: int = 512, temperature: float = 0.7) -> str:
+             max_new_tokens: int = 512, temperature: float = 0.7, *,
+             history: list[dict] | None = None) -> str:
     content = instruction + (f"\n\n{input_ctx}" if input_ctx else "")
     payload = {
         "model": model_name,
         "messages": [
             {"role": "system", "content": _SYSTEM_PROMPT},
+            *(history or []),
             {"role": "user", "content": content},
         ],
         "stream": False,
         "options": {
+            # The system prompt alone is ~400 tokens; the default 2048 would silently
+            # truncate the oldest turns of the conversation history.
+            "num_ctx": 8192,
             "num_predict": max_new_tokens,
             "temperature": temperature,
             "top_p": 0.9,

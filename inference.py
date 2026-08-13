@@ -65,9 +65,10 @@ NEVER respond in pure Malay or pure English. Always mix both languages in every 
 
 
 def generate(model, tokenizer, instruction, input_ctx="",
-             max_new_tokens=512, temperature=0.7):
+             max_new_tokens=512, temperature=0.7, *, history=None):
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
+        *(history or []),
         {"role": "user", "content": instruction + (f"\n\n{input_ctx}" if input_ctx else "")},
     ]
     try:

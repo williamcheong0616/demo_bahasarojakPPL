@@ -27,6 +27,7 @@ import os
 import re
 import tempfile
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import soundfile as sf
 import torch
@@ -64,6 +65,9 @@ TTS_MODEL_ID  = "Scicom-intl/Multilingual-TTS-1.7B-Base"
 TTS_CODEC_ID  = "neuphonic/neucodec"
 TTS_SPEAKER   = "husein"   # default speaker voice
 TTS_SAMPLE_RATE = 24000
+
+# Conversation memory — 5 user turns + 5 assistant turns sent as context.
+MAX_HISTORY = 10
 
 # ---------------------------------------------------------------------------
 # Backend detection
@@ -198,11 +202,22 @@ class GreetResponse(BaseModel):
 class ASRResponse(BaseModel):
     transcript: str
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
 class SLMRequest(BaseModel):
     prompt: str
+    # Prior turns for conversational memory. Capped server-side to MAX_HISTORY.
+    history: list[ChatMessage] = []
 
 class SLMResponse(BaseModel):
     response: str
+
+class StatusResponse(BaseModel):
+    asr: bool
+    slm: bool
+    tts: bool
 
 class TTSRequest(BaseModel):
     text: str
@@ -335,6 +350,16 @@ def _write_tmp(data: bytes, suffix: str) -> str:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/api/status", response_model=StatusResponse)
+async def status():
+    """Which models actually loaded. Reports load success, not ongoing health."""
+    return StatusResponse(
+        asr=_asr_pipe is not None,
+        slm=_slm_model is not None,
+        tts=_tts_model is not None and _tts_codec is not None,
+    )
+
+
 @app.post("/api/greet", response_model=GreetResponse)
 async def greet():
     import traceback
@@ -377,8 +402,15 @@ async def slm(body: SLMRequest):
     if _slm_model is None or _slm_tokenizer is None:
         raise HTTPException(status_code=503, detail="SLM model not available")
 
+    # The client already trims, but the cap is enforced here — a client is not trusted
+    # to bound how much context we feed the model.
+    history = [m.model_dump() for m in body.history[-MAX_HISTORY:]]
+
     try:
-        text = await asyncio.to_thread(_slm_generate, _slm_model, _slm_tokenizer, body.prompt)
+        text = await asyncio.to_thread(
+            _slm_generate, _slm_model, _slm_tokenizer, body.prompt, "", 512, 0.7,
+            history=history,
+        )
     finally:
         _clear_memory()
     return SLMResponse(response=text)

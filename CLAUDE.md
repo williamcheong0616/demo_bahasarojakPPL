@@ -39,10 +39,26 @@ requirements.txt
 
 | Path | Input | Output | Model |
 |---|---|---|---|
+| `GET /api/status` | — | `{asr, slm, tts}` booleans | — |
 | `POST /api/greet` | — | `{text, audio_b64}` | TTS |
 | `POST /api/asr` | multipart audio file | `{transcript}` | Whisper |
-| `POST /api/slm` | `{prompt}` | `{response}` | Llama-SEA-LION |
+| `POST /api/slm` | `{prompt, history?}` | `{response}` | Llama-SEA-LION |
 | `POST /api/tts` | `{text}` | `audio/wav` bytes | Scicom TTS |
+
+`/api/status` reports which models loaded successfully — load success, not ongoing
+health. The frontend uses it to show a status dot and to disable push-to-talk when ASR
+is unavailable.
+
+### Conversation memory
+
+`/api/slm` accepts an optional `history` of `{role, content}` messages (roles `user` /
+`assistant`) that is prepended to the prompt as prior turns. The client trims to the
+last 10 messages — 5 exchanges — and the server re-caps at `MAX_HISTORY` in `main.py`,
+which is authoritative.
+
+All three `generate()` backends take a keyword-only `history=None`. `inference_ollama.py`
+also sets `num_ctx: 8192`; the Ollama default of 2048 would silently truncate the oldest
+turns given the ~400-token system prompt.
 
 ### Model loading
 
@@ -57,8 +73,20 @@ All three models are globals loaded once at startup inside the FastAPI `lifespan
 - Whisper requires a file path (not bytes). The ASR endpoint writes the upload to a `NamedTemporaryFile`, transcribes, then deletes it in `finally`.
 - All model inference is wrapped in `asyncio.to_thread()` to avoid blocking the async event loop.
 - TTS pipeline output key is handled with `out.get("audio", out.get("waveform"))` to accommodate model variants.
-- The frontend uses `MediaRecorder` for audio capture; MIME type is detected at runtime (`webm`, `ogg`, fallback).
+- The frontend uses `MediaRecorder` for audio capture; MIME type is detected at runtime (`webm`, `ogg`, fallback). Push-to-talk uses pointer events, so touch works and nothing depends on hover.
 - No CORS config needed — the frontend is served by the same FastAPI process.
+- Typed input skips ASR and runs SLM → TTS through the same `runTurn()` path as voice, so the app stays usable when the mic is blocked or ASR failed to load.
+
+### Interface language
+
+The header language selector (Malay / English / Chinese) translates **the interface
+only** — it is chrome. It does not change the AI's reply language, the Whisper hint
+(`language="ms"`), or `GREETING_TEXT`. The project's identity is Bahasa Rojak; the AI's
+own voice stays fixed while the surrounding UI adapts.
+
+Strings live in the `I18N` object in `static/index.html`. Elements carry `data-i18n`
+attributes and `applyLang()` rewrites them. The choice persists in `localStorage`. When
+adding interface text, add a key to all three dictionaries.
 
 ## Configuration constants (top of `main.py`)
 

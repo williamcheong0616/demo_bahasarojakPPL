@@ -40,9 +40,11 @@ NEVER respond in pure Malay or pure English. Always mix both languages in every 
 
 
 def generate(model, tokenizer, instruction: str, input_ctx: str = "",
-             max_new_tokens: int = 512, temperature: float = 0.7) -> str:
+             max_new_tokens: int = 512, temperature: float = 0.7, *,
+             history: list[dict] | None = None) -> str:
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
+        *(history or []),
         {"role": "user", "content": instruction + (f"\n\n{input_ctx}" if input_ctx else "")},
     ]
     try:
